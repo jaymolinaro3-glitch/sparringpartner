@@ -32,11 +32,18 @@ User 3 (brenn) is the admin account used in the demos.
 
 ---
 
-Endpoints
-Health
+API Endpoints Overview
 
-GET /health
-Returns simple JSON to verify the app is running.
+| Method | Endpoint                     | Purpose                                                        |
+|--------|-------------------------------|----------------------------------------------------------------|
+| GET    | /health                      | Simple liveness probe                                          |
+| GET    | /users/<id>                  | **Vulnerable** — IDOR: returns user by ID with no auth         |
+| GET    | /users_secure/<id>           | **Safe** — IDOR mitigated via identity binding                 |
+| PATCH  | /users/<id>                  | **Vulnerable** — Mass Assignment (can escalate privileges)     |
+| PATCH  | /users_safe/<id>             | **Safe** — Mass Assignment mitigated via whitelisted fields    |
+
+---
+
 
 ---
 

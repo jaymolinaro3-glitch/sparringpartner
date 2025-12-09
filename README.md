@@ -6,7 +6,7 @@ Deliberately vulnerable Flask API to demonstrate core API security issues (IDOR/
 
 ## Tech Stack
 
-- Python 3.x
+- Python 3.14.2
 - Flask
 - In-memory "users" dictionary (no real DB)
 - Tested locally on Windows

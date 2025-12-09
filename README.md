@@ -228,6 +228,45 @@ IDOR/BOLA: Do not derive authorization from client-controlled IDs (URL/path/body
 Mass Assignment: Never blindly apply client JSON to server objects. Use explicit whitelists for mutable fields and protect privileged attributes.
 
 
+---
+
+## Screenshots (Proof of Exploitation)
+
+### IDOR (Insecure Direct Object Reference)
+
+**1) Intercepting legitimate request**
+<span>
+<img src="screenshots/idor_intercept.png" width="750">
+</span>
+
+**2) Mutating user ID to access admin**
+<span>
+<img src="screenshots/idor_modified.png" width="750">
+</span>
+
+**3) Unauthorized admin data returned**
+<span>
+<img src="screenshots/idor_admin_response.png" width="750">
+</span>
+
+---
+
+### Mass Assignment (Privilege Escalation)
+
+**1) Privilege escalation via role change**
+<span>
+<img src="screenshots/mass_patch_admin.png" width="750">
+</span>
+
+**2) Verification: GET confirms admin role**
+<span>
+<img src="screenshots/mass_get_admin.png" width="750">
+</span>
+
+**3) Safe endpoint blocks role change (whitelist)**
+<span>
+<img src="screenshots/mass_safe_whitelist.png" width="750">
+</span>
 
 
 

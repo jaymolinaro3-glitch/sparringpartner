@@ -44,9 +44,6 @@ API Endpoints Overview
 
 ---
 
-
----
-
 Vulnerability 1 — IDOR / BOLA
 Vulnerable Endpoint
 

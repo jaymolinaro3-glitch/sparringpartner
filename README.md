@@ -1,7 +1,20 @@
 # SparringPartner v1 — Vulnerable API (Flask)
 
-Deliberately vulnerable Flask API to demonstrate core API security issues (IDOR/BOLA and Mass Assignment), their exploitation with Burp/Postman, and basic fix patterns.
+Deliberately vulnerable Flask API built to practice product and API security reasoning, with a focus on authorization correctness. Rather than cataloging vulnerabilities, this project is structured around exploit security claims, how those claims can fail, and how to fix them correctly at the server. 
 
+Security Claims Demonstrated
+
+Claim 1  - Object access is restricted to the owning user
+	A user should only be able to read or modify their own user object
+
+Claim 2 - Privileged attributes cannot be modified by clients
+	Clients must not be able to escalate privileges or modify protected fields through request input
+
+Each claim is demonstrated with:
+	-A vulnerable endpoint
+	-A real exploit (via Burp/Postman)
+	-A fixed comparison endpoint
+	-Clear evidence of "break to fix"
 ---
 
 ## Tech Stack
@@ -45,6 +58,10 @@ API Endpoints Overview
 ---
 
 Vulnerability 1 — IDOR / BOLA
+
+Claim Violated
+	A user can only access their own user object.
+
 Vulnerable Endpoint
 
 GET /users/<id>
@@ -81,6 +98,8 @@ Server returns the admin user:
 
 No AuthN or AuthZ (Just ID in the URL)
 
+This demonstartes authorization derived from client-controlled input (URL)
+
 ---
 
 Fixed Comparison Endpoint
@@ -107,13 +126,17 @@ def get_user_secure(user_id):
 
     return jsonify(user), 200
 
-Used here to illustrate the principle:
+Used here to illustrate the core principle:
 
 Authorization must be derived from server-side identity (here approximated by X-User-ID), not from the client-controlled ID in the URL.
 
 ---
 
 Vulnerability 2 — Mass Assignment / Privilege Escalation
+
+Claim Violated
+	Clients cannot modify privileged attributes
+
 Vulnerable Endpoint
 
 PATCH /users/<id>
@@ -207,7 +230,7 @@ Response:
   "email": "safe@example.com"
 }
 
-#Email is updated (whitelisted) and role is ignored (protected)
+#Email is updated (whitelisted) and role is ignored (protected) when supplied by the client. 
 
 ---
 
@@ -230,6 +253,8 @@ Key Takeaways
 IDOR/BOLA: Do not derive authorization from client-controlled IDs (URL/path/body). Bind access control to server-side identity.
 
 Mass Assignment: Never blindly apply client JSON to server objects. Use explicit whitelists for mutable fields and protect privileged attributes.
+
+Authorization must always be enforced server-side, based on trusted identity and policy. 
 
 
 ---

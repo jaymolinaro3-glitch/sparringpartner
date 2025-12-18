@@ -3,7 +3,7 @@
 Deliberately vulnerable Flask API built to practice product and API security reasoning, with a focus on authorization correctness. Rather than cataloging vulnerabilities, this project is structured around exploit security claims, how those claims can fail, and how to fix them correctly at the server. 
 
 Security Claims Demonstrated
-
+---
 Claim 1  - Object access is restricted to the owning user
 	A user should only be able to read or modify their own user object
 
@@ -11,11 +11,12 @@ Claim 2 - Privileged attributes cannot be modified by clients
 	Clients must not be able to escalate privileges or modify protected fields through request input
 
 Each claim is demonstrated with:
-	-A vulnerable endpoint
-	-A real exploit (via Burp/Postman)
-	-A fixed comparison endpoint
-	-Clear evidence of "break to fix"
----
+
+	- A vulnerable endpoint
+	- A real exploit (via Burp/Postman)
+	- A fixed comparison endpoint
+	- Clear evidence of "break to fix"
+
 
 ## Tech Stack
 

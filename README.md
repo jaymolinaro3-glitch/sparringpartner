@@ -5,9 +5,11 @@ Deliberately vulnerable Flask API built to practice product and API security rea
 Security Claims Demonstrated
 ---
 Claim 1  - Object access is restricted to the owning user
+
 	A user should only be able to read or modify their own user object
 
 Claim 2 - Privileged attributes cannot be modified by clients
+
 	Clients must not be able to escalate privileges or modify protected fields through request input
 
 Each claim is demonstrated with:

@@ -244,8 +244,10 @@ Tooling Used
 
 Burp Suite Community
 
-Proxy: intercepted GET /users/1, modified to GET /users/3
-
+Proxy: intercepted 
+'''
+GET /users/1, modified to GET /users/3
+'''
 Repeater: replayed the attack request to demonstrate repeatability
 
 Postman

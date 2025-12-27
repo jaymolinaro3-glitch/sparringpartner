@@ -364,17 +364,17 @@ Mass Assignment: Never blindly apply client JSON to server objects. Use explicit
 
 **1) Intercepting legitimate request**
 <span>
-<img src="screenshots/idor_intercept.png" width="750">
+<img src="screenshots/idor_intercept.PNG" width="750">
 </span>
 
 **2) Mutating user ID to access admin**
 <span>
-<img src="screenshots/idor_modified.png" width="750">
+<img src="screenshots/idor_modified.PNG" width="750">
 </span>
 
 **3) Unauthorized admin data returned**
 <span>
-<img src="screenshots/idor_admin_response.png" width="750">
+<img src="screenshots/idor_admin_response.PNG" width="750">
 </span>
 
 ---

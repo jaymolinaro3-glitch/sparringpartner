@@ -383,17 +383,17 @@ Mass Assignment: Never blindly apply client JSON to server objects. Use explicit
 
 **1) Privilege escalation via role change**
 <span>
-<img src="screenshots/mass_patch_admin.png" width="750">
+<img src="screenshots/mass_patch_admin.PNG" width="750">
 </span>
 
 **2) Verification: GET confirms admin role**
 <span>
-<img src="screenshots/mass_get_admin.png" width="750">
+<img src="screenshots/mass_get_admin.PNG" width="750">
 </span>
 
 **3) Safe endpoint blocks role change (whitelist)**
 <span>
-<img src="screenshots/mass_safe_whitelist.png" width="750">
+<img src="screenshots/mass_safe_whitelist.PNG" width="750">
 </span>
 
 

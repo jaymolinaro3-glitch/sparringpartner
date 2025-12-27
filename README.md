@@ -363,6 +363,7 @@ Mass Assignment: Never blindly apply client JSON to server objects. Use explicit
 ### IDOR (Insecure Direct Object Reference)
 
 **1) Intercepting legitimate request**
+
 <span>
 <img src="screenshots/idor_intercept.PNG" width="750">
 </span>

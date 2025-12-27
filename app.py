@@ -11,7 +11,7 @@ users = {
     3: {"id": 3, "username": "brenn",  "role": "admin", "email": "brenn@example.com"},
 }
 
-# ---------- Token config (for learning only) ----------
+# ---------- Token config ----------
 JWT_SECRET = "sparringpartner-token-secret"
 JWT_ALGO = "HS256"
 

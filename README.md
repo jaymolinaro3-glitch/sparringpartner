@@ -397,6 +397,28 @@ Mass Assignment: Never blindly apply client JSON to server objects. Use explicit
 <img src="screenshots/mass_safe_whitelist.PNG" width="750">
 </span>
 
+---
+
+### Token BOLA
+
+**1) Token Issuance**
+<span>
+<img src="screenshots/token1.PNG" width="750">
+</span>
+
+**2) Vulnerable token BOLA**
+<span>
+<img src="screenshots/token2.PNG" width="750">
+</span>
+
+**3) Strict endpoint blocking cross-user access**
+<span>
+<img src="screenshots/token3.PNG" width="750">
+</span>
+<span>
+<img src="screenshots/token4.PNG" width="750">
+</span>
+
 
 
 

@@ -12,12 +12,16 @@ Claim 2 - Privileged attributes cannot be modified by clients
 
 	Clients must not be able to escalate privileges or modify protected fields through request input
 
+Claim 3 - Valid token presence does not imply authorization
+
+	A valid token must still be bound to the object the user is accessing. 
+
 Each claim is demonstrated with:
 
 	- A vulnerable endpoint
 	- A real exploit (via Burp/Postman)
 	- A fixed comparison endpoint
-	- Clear evidence of "break to fix"
+	- Clear evidence of break > root cause > fix. 
 
 
 ## Tech Stack
@@ -54,11 +58,14 @@ API Endpoints Overview
 | Method | Endpoint                     | Purpose                                                        |
 |--------|-------------------------------|----------------------------------------------------------------|
 | GET    | /health                      | Simple liveness probe                                          |
-| GET    | /users/<id>                  | **Vulnerable** — IDOR: returns user by ID with no auth         |
-| GET    | /users_secure/<id>           | **Safe** — IDOR mitigated via identity binding                 |
-| PATCH  | /users/<id>                  | **Vulnerable** — Mass Assignment (can escalate privileges)     |
-| PATCH  | /users_safe/<id>             | **Safe** — Mass Assignment mitigated via whitelisted fields    |
-
+| GET    | /users/<id>                  | **Vulnerable** - IDOR: returns user by ID with no auth         |
+| GET    | /users_secure/<id>           | **Safe** - IDOR mitigated via identity binding                 |
+| PATCH  | /users/<id>                  | **Vulnerable** - Mass Assignment (can escalate privileges)     |
+| PATCH  | /users_safe/<id>             | **Safe** - Mass Assignment mitigated via whitelisted fields    |
+| POST   | /login						| Issues demo JWT token											 |
+| GET	 | /users_token/<id>			| **Vulnerable** - BOLA with valid token (no ownership binding)  |
+| GET	 | /users_token_strict/<id>     | **Safe** - Token identitiy must match object ID				 |
+  
 ---
 
 Vulnerability 1 — IDOR / BOLA
@@ -141,11 +148,10 @@ Authorization must be derived from server-side identity (here approximated by X-
 Vulnerability 2 — Mass Assignment / Privilege Escalation
 
 Claim Violated
-	Clients cannot modify privileged attributes
+	- Clients cannot modify privileged attributes
 
 Vulnerable Endpoint
-
-PATCH /users/<id>
+	- PATCH /users/<id>
 
 Code:
 ```
@@ -240,29 +246,114 @@ Email is updated (whitelisted) and role is ignored (protected) when supplied by 
 
 ---
 
+Vulnerability 3 - BOLA with a Valid Token
+
+Claim Violated
+	- Valid token presence does not imply authorization
+
+This slice demonstrates that "valid token present" does not automatically mean "authorized for this object"
+	- A token provides identity, but authorization must still enforce object ownership 
+
+Login > Token(POST /login)
+
+Request:
+```
+{
+  "username": "atlas"
+}
+```
+
+Reponse:
+```
+{
+  "access_token": "<JWT with sub = 1>"
+}
+```
+The token payload is effectively:
+```
+{ "sub": 1 }
+```
+"sub" is treated as the server-side identity for user 1 (Atlas)
+
+Vulnerable Endpoint
+	- GET /users_token/<id>
+
+Code:
+```
+@app.route("/users_token/<int:user_id>", methods=["GET"])
+@require_token
+def get_user_token(user_id):
+    user = users.get(user_id)
+    if not user:
+        return jsonify({"error": "not found"}), 404
+
+    # VULNERABILITY: ignores request.current_user_id
+    return jsonify(user), 200
+```
+
+Exploit Summary
+
+Request - Token belongs to "atlas", but path requests user 3:
+```
+GET /users_token/3
+Authorization: Bearer <atlas_token>
+```
+Reponse returns brenn(admin)
+
+**Any valid token can ready any user - BOLA even with correct authentication**
+
+The system is still deriving authorization from client-controlled path 
+
+---
+Fixed Comparison Endpoint
+
+Safe endpoint
+	- GET /users_token_strict/<id>
+
+Code:
+```
+@app.route("/users_token_strict/<int:user_id>", methods=["GET"])
+@require_token
+def get_user_token_strict(user_id):
+    current_user_id = getattr(request, "current_user_id", None)
+    if current_user_id != user_id:
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify(users[user_id]), 200
+}
+```
+With the same "atlas" token (sub = 1):
+	- GET /users_token_strict/3 > 403 forbidden
+	- GET /users_token_strict/1 > returns atlas
+
+**Correct behavior**
+	- Authorization is enforced by comparing **token identity** (sub) to the object being access (<id>), not by trusting the URL
+	
+
+---
+
 Tooling Used
 
 Burp Suite Community
-
-Proxy: intercepted 
-
-	- GET /users/1, modified to GET /users/3
-
-Repeater: replayed the attack request to demonstrate repeatability
+	- Proxy: ID tampering
+	- Repeater: replaying object-level access attempt
 
 Postman
+	- Mass assignment testing
+	- Token issuance and token BOLA demonstration
 
-Demonstrated PATCH mass assignment and the “safe” whitelisted endpoint
 
 ---
+
 
 Key Takeaways
 
 IDOR/BOLA: Do not derive authorization from client-controlled IDs (URL/path/body). Bind access control to server-side identity.
 
+Token BOLA: A valid token does not imply authorization - identity must still be bount to the object 
+
 Mass Assignment: Never blindly apply client JSON to server objects. Use explicit whitelists for mutable fields and protect privileged attributes.
 
-Authorization must always be enforced server-side, based on trusted identity and policy. 
+**Authorization must always be enforced server-side, based on trusted identity and policy.** 
 
 
 ---

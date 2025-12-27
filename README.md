@@ -402,16 +402,19 @@ Mass Assignment: Never blindly apply client JSON to server objects. Use explicit
 ### Token BOLA
 
 **1) Token Issuance**
+
 <span>
 <img src="screenshots/token1.PNG" width="750">
 </span>
 
 **2) Vulnerable token BOLA**
+
 <span>
 <img src="screenshots/token2.PNG" width="750">
 </span>
 
 **3) Strict endpoint blocking cross-user access**
+
 <span>
 <img src="screenshots/token3.PNG" width="750">
 </span>

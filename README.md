@@ -273,7 +273,7 @@ The token payload is effectively:
 ```
 { "sub": 1 }
 ```
-"sub" is treated as the server-side identity for user 1 (Atlas)
+'sub' is treated as the server-side identity for user 1 (Atlas)
 
 Vulnerable Endpoint
 	- GET /users_token/<id>
@@ -328,6 +328,107 @@ With the same "atlas" token (sub = 1):
 **Correct behavior**
 	- Authorization is enforced by comparing **token identity** (sub) to the object being access (<id>), not by trusting the URL
 	
+
+---
+
+# Slice 3 — Dockerized Deployment & Trust Boundary Notes
+
+This slice wraps the Flask API in a single Docker container to make the deployment context more realistic, without jumping into orchestration or Kubernetes.
+
+## Dockerfile (simplified view)
+
+- Base image: `python:3.11-slim`
+- Copies `app.py` into `/app`
+- Installs `flask` and `PyJWT`
+- Exposes port `5000`
+- Starts the app with `python app.py` (Flask bound to `0.0.0.0` inside the container)
+
+Build:
+
+```bash
+docker build -t sparringpartner:dev .
+```
+Run:
+```
+docker run --rm -p 5000:5000 --name sparringpartner sparringpartner:dev
+```
+The API is then reachable at:
+```
+http://localhost:5000
+```
+## Trust Boundary — Before vs After Docker
+
+### Before (bare process)
+
+- Flask ran directly on the host (Windows), bound to `127.0.0.1` and/or a LAN IP like `10.x.x.x`.
+- The trust boundary for network access was:
+  - The OS network stack
+  - Host firewall rules
+  - Anything else on the same machine could potentially talk to the app
+
+### After (single Docker container)
+
+- The app runs as a process inside a container namespace
+- Internally, Flask still binds to `0.0.0.0:5000` **inside the container**
+- The host decides how (and whether) to expose that port via `-p` flags
+
+The new trust boundary is:
+
+> Anything that can reach the **published host port** can now reach the vulnerable API inside the container.
+
+On a laptop with no inbound exposure, this is mostly local.  
+On a cloud VM with a public IP and open firewall, the same command makes the lab API **internet-accessible**.
+
+---
+
+## Exposure Changes with `0.0.0.0` and Port Publishing
+
+Inside the container, binding to `0.0.0.0` means:
+
+> “Accept connections on any container interface.”
+
+That only matters externally once a port is published:
+
+- `-p 5000:5000` maps **host port 5000 → container port 5000**
+
+If the host’s `0.0.0.0:5000` is reachable from the internet (cloud VM, insecure security group, etc.), then every intentionally vulnerable endpoint becomes externally reachable.
+
+Key lesson:
+
+> “Just a local learning API” becomes a real attack surface once the host is exposed.  
+> Docker does not secure the API — it changes the **delivery context and exposure**.
+
+---
+
+## Realistic Failure Modes (Single-Container Level)
+
+**1) Accidental internet exposure of a lab container**
+
+- Developer runs this container on a cloud VM with:
+  - `-p 5000:5000`
+  - Public IP
+  - Security group open to `0.0.0.0/0`
+- The vulnerable API (IDOR, mass assignment, token BOLA) becomes public attack surface
+- Assumption *“it’s just a local lab”* is false in that deployment context
+
+**2) Misplaced trust in “container isolation”**
+
+- Team assumes *“it’s in Docker so it’s isolated”*
+- Another service on the same host (or same Docker network) can still reach:
+  - `http://localhost:5000`
+  - `http://sparringpartner:5000`
+- Any SSRF or internal request from a more-privileged service can hit this API and exploit insecure endpoints
+
+Practical takeaway:
+
+> **Network reachability**, not “container vs bare metal,” determines who can attack the app.
+
+---
+
+This slice is intentionally limited to **single-container awareness**:
+
+- No orchestration, Compose, or Kubernetes
+- Focus = **exposure, port publishing, and trust-boundary shifts when an API is containerized**
 
 ---
 

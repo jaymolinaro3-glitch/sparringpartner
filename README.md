@@ -432,6 +432,67 @@ This slice is intentionally limited to **single-container awareness**:
 
 ---
 
+# Slice 4 — Minimal AWS Deployment & Internet-Facing Claims
+
+In this slice, SparringPartner is deployed as a Dockerized container on a single EC2 instance in AWS. The goal is not production DevOps — the goal is to make the API **genuinely internet-reachable** and reason about the security claims that context creates.
+
+## Path: Client → Internet → AWS → EC2 → Docker → Flask
+
+```
+
+Client (Browser / Postman)
+  ↓
+Public Internet
+  ↓
+AWS (routing + public IP)
+  ↓
+EC2 instance (security group controls who can reach port 80)
+  ↓
+Docker (host 80 → container 5000)
+  ↓
+Flask app (vulnerable endpoints)
+```
+- EC2 exposes a public IPv4 address
+- Security group allows inbound HTTP/80 from whitelisted IP adress (MyIP)
+- Docker maps '80>5000'
+  ```
+  docker run -d -p 80:5000 sparringpartner:aws
+  ```
+- Flask still listens on '0.0.0.0:5000' inside the container
+
+  Result:
+  	- The same vulnerable API is now reachable from the internet, subject to cloud-level network controls
+
+ ## Internet-Facing Security Claims (Falsifiable)
+
+**Claim A — Only my IP can reach the API**
+
+- Enforcement point: EC2 Security Group inbound rule on TCP/80 = *My IP only*
+- What would falsify this claim:
+  - Changing the rule to `0.0.0.0/0`
+  - Adding another security group or load balancer that exposes the instance indirectly
+  - Observing the API is reachable from a different network or device
+
+**Claim B — The API is only reachable via port 80**
+
+- Enforcement point: only TCP/80 is open (SSH 22 is restricted to My IP)
+- What would falsify this claim:
+  - Opening additional inbound ports (e.g., 5000, 8080)
+  - Starting another container or process and exposing it
+  - A scan from another host shows more listening services
+
+**Claim C — Cloud deployment does not change application-layer risk**
+
+- The same intentional vulnerabilities remain:
+  - `/users/<id>` → IDOR / BOLA
+  - `PATCH /users/<id>` → Mass assignment
+  - `/users_token/<id>` → Token-based BOLA
+- What would falsify misunderstanding:
+  - Assuming “it’s in AWS so it’s protected”
+  - Treating network controls as a substitute for authorization
+  - Exposing the instance to the internet and seeing the same flaws remain exploitable
+
+---
 Tooling Used
 
 Burp Suite Community

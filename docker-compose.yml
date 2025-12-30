@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    container_name: sparringpartner_app
+    # Internal port the Flask app listens on
+    expose:
+      - "5000"
+    # Publish 5000 on the host so we can hit Flask directly for bypass tests
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+    networks:
+      - sp_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: sparringpartner_nginx
+    depends_on:
+      - app
+    # Port you will hit from your host to go THROUGH nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - sp_net
+
+networks:
+  sp_net:
+    driver: bridge

@@ -11,6 +11,9 @@ users = {
     3: {"id": 3, "username": "brenn",  "role": "admin", "email": "brenn@example.com"},
 }
 
+# ---------- Reverse proxy / header-trust slice ----------
+PROXY_SHARED_SECRET = "sparringpartner-proxy-secret"
+
 # ---------- Token config ----------
 JWT_SECRET = "sparringpartner-token-secret"
 JWT_ALGO = "HS256"
@@ -167,6 +170,64 @@ def get_user_token_strict(user_id):
         return jsonify({"error": "forbidden"}), 403
 
     return jsonify(user), 200
+
+#-----------REVERSE PROXY / HEADER-TRUST SLICE------
+
+@app.route("/users_proxy/<int:user_id>", methods=["GET"])
+def get_user_via_proxy_header(user_id):
+    """
+    VULNERABLE:
+    Treats X-User-ID as caller identity and uses it for authorization,
+    without enforcing that the header actually came from the reverse proxy.
+    Any client that can reach the app can spoof X-User-ID.
+    """
+    user = users.get(user_id)
+    if not user:
+        return jsonify({"error": "not found"}), 404
+
+    header_user_id = request.headers.get("X-User-ID")
+
+    try:
+        header_user_id = int(header_user_id)
+    except (TypeError, ValueError):
+        # No or bad X-User-ID header -> treat as unauthorized
+        return jsonify({"error": "forbidden"}), 403
+
+    # Authorization decision based solely on header value
+    if header_user_id != user_id:
+        return jsonify({"error": "forbidden"}), 403
+
+    return jsonify(user), 200
+
+@app.route("/users_proxy_safe/<int:user_id>", methods=["GET"])
+def get_user_via_proxy_header_safe(user_id):
+    """
+    "SAFE" VERSION (for this slice):
+    Only trusts X-User-ID when accompanied by a valid proxy marker header.
+    Direct client requests that spoof X-User-ID but do not have the proxy secret
+    are rejected.
+    """
+    user = users.get(user_id)
+    if not user:
+        return jsonify({"error": "not found"}), 404
+
+    header_user_id = request.headers.get("X-User-ID")
+    proxy_marker = request.headers.get("X-From-Proxy")
+
+    # Enforce trust boundary: only honor identity header if proxy marker is valid
+    if proxy_marker != PROXY_SHARED_SECRET:
+        return jsonify({"error": "forbidden"}), 403
+
+    try:
+        header_user_id = int(header_user_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "forbidden"}), 403
+
+    if header_user_id != user_id:
+        return jsonify({"error": "forbidden"}), 403
+
+    return jsonify(user), 200
+
 
 
 if __name__ == "__main__":

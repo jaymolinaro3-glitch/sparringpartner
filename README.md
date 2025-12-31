@@ -65,6 +65,14 @@ API Endpoints Overview
 | POST   | /login						| Issues demo JWT token											 |
 | GET	 | /users_token/<id>			| **Vulnerable** - BOLA with valid token (no ownership binding)  |
 | GET	 | /users_token_strict/<id>     | **Safe** - Token identitiy must match object ID				 |
+| POST   | /login_token_stress               | Issue short-lived JWT with sub, role, aud, exp for stress testing      |
+| GET    | /users_token_replay/<id>          | **Vulnerable** — ignores exp, no identity binding (replay + IDOR)      |
+| GET    | /users_token_replay_safe/<id>     | **Safe** — enforces exp, audience, and sub == id                        |
+| GET    | /admin_token_sensitive_insecure   | **Vulnerable** — any valid token can access admin-only data            |
+| GET    | /admin_token_sensitive            | **Safe** — enforces role == "admin"                                     |
+
+
+---
   
 ---
 
@@ -327,7 +335,173 @@ With the same "atlas" token (sub = 1):
 
 **Correct behavior**
 	- Authorization is enforced by comparing **token identity** (sub) to the object being access (<id>), not by trusting the URL
-	
+---
+## Token Stress Tests (Token as Claim Carrier)
+
+**Core claim**
+
+> Authorization must be derived from server-side token claims (sub, role, audience, expiration), not from the mere presence of a “valid” token.
+
+This slice treats JWTs explicitly as **claim carriers**, and shows how things break when the backend:
+
+- Ignores expiration (`exp`)
+- Ignores audience (`aud`)
+- Ignores role/privilege (`role`) in admin contexts
+
+### Token Model (for this slice)
+
+`POST /login_token_stress` issues a short-lived JWT with:
+
+- `sub`: user id (stored as string in the token)
+- `role`: `"user"` or `"admin"` (from the in-memory `users` dict)
+- `aud`: `"sparringpartner-api"`
+- `iat`: issued-at (UTC)
+- `exp`: `iat + 5 minutes`
+
+Helper:
+
+- `decode_token_from_header(expect_audience: str | None = None, allow_expired: bool = False)`
+Behavior:
+
+- Reads `Authorization: Bearer <token>`
+- Verifies signature
+- If `expect_audience` is set, enforces `aud == expect_audience`
+- If `allow_expired=True`, disables exp verification (for replay demo)
+- On success:
+
+  - Converts `sub` string → `int`
+  - Attaches `request.current_user_id` and `request.current_token_claims`
+  - Returns `(sub, claims)`
+
+- On failure: returns `(None, {"error": "...", "status": <int>})`
+
+---
+### A) Replay / Ignored Expiration
+
+**Vulnerable endpoint**
+
+`GET /users_token_replay/<id>`
+
+- Calls `decode_token_from_header(expect_audience=None, allow_expired=True)`
+- Explicitly disables exp verification (`verify_exp = False`)
+- Does **not** check `sub == user_id` in the path
+- If the token’s signature is valid, it returns whatever user ID was requested, even if the token is expired
+
+**Effect**
+
+- An attacker can:
+
+  1. Obtain a valid token once
+  2. Let it expire
+  3. Continue using it to read arbitrary user objects
+
+  This is both:
+
+  - A replay issue (expired tokens still accepted)
+  - An IDOR/BOLA issue (no binding between `sub` and `<id>`)
+  - 
+ **Safe endpoint**
+
+`GET /users_token_replay_safe/<id>`
+
+- Calls `decode_token_from_header(expect_audience="sparringpartner-api")`
+- Does **not** allow expired tokens (`allow_expired=False` by default)
+- Enforces:
+
+  - Valid signature
+  - Non-expired token
+  - `aud == "sparringpartner-api"`
+  - `sub == user_id` in the path
+
+If any of those checks fail, returns `401` or `403` instead of the user object.
+
+**Example flow (using Postman)**
+
+1. Login as `atlas`:
+```
+   POST /login_token_stress
+   { "username": "atlas" }
+```   
+Get `access_token` with `sub=1`, `role=user`
+
+2. Call vulnerable endpoint:
+```
+GET /users_token_replay/3
+Authorization: Bearer <ATLAS_TOKEN>
+```
+
+200, returns user 3 (admin `brenn`) - replay + identity break
+
+3. Call safe endpoint
+ ```
+GET /users_token_replay_safe/3
+Authorization: Bearer <ATLAS_TOKEN>
+```
+403, because `sub=1`, path id = 3 - forbidden
+
+### B) Audience / Context Misuse
+
+The helper allows enforcing audience via:
+```
+sub, result = decode_token_from_header(expect_audience="sparringpartner-api")
+```
+Vulnerable pattern
+	- The backend treats any signed token as valid
+If the backed does not enforce `aud`, the token is still accepted
+
+Safe pattern
+	- Every token-protected endpoint enforces audience
+```
+sub, result = decode_token_from_header(expect_audience="sparringpartner-api")
+```
+### C) Role / Privilege Misuse (BFLA)
+
+This pair of endpoints demonstrates a Business Logic / Authorization failure where a valid token is treated as sufficient permission, even though the action should be restricted to admins.
+
+#### Vulnerable endpoint — missing role enforcement
+
+`GET /admin_token_sensitive_insecure`
+
+Behavior:
+
+- Verifies the token is structurally valid (signature, etc.)
+- **Does not check the `role` claim**
+- Any authenticated token can access the endpoint
+
+Effect:
+
+- A normal user (`role="user"`) can invoke an admin-only action
+- The system treats “has a token” as equivalent to “is authorized”
+
+This models a classic **BFLA (Business Flow / Logic Abuse)** condition:
+authorization is assumed instead of explicitly enforced.
+
+---
+
+#### Secure endpoint — explicit role validation
+
+`GET /admin_token_sensitive`
+
+Behavior:
+
+- Calls `decode_token_from_header(expect_audience="sparringpartner-api")`
+- Reads `role` from `request.current_token_claims`
+- Enforces server-side privilege:
+
+```python
+if role != "admin":
+    return jsonify({"error": "forbidden"}), 403
+```
+
+***Core lesson***
+
+A valid token does not imply correct authorization.
+
+Roles and privileges must be enforced explicitly
+
+Authorization must come from server-side evaluation of claims
+
+Business logic = part of the security boundary
 
 ---
 
@@ -491,6 +665,159 @@ Flask app (vulnerable endpoints)
   - Assuming “it’s in AWS so it’s protected”
   - Treating network controls as a substitute for authorization
   - Exposing the instance to the internet and seeing the same flaws remain exploitable
+ 
+---
+
+# Slice 5 — Reverse Proxy & Header-Based Trust (nginx)
+
+This slice adds an nginx reverse proxy in front of the Flask app and shows how **header-based identity** only makes sense if the backend enforces the proxy as a real trust boundary.
+
+The key point:
+
+- Through nginx, the client **cannot** spoof `X-User-ID` (nginx overwrites it).
+- If the backend is reachable directly, a client **can** spoof `X-User-ID` unless the backend enforces a proxy-only signal.
+
+## Architecture
+
+```text
+Client (curl / Postman)
+  ↓
+EC2 public IP (port 80)
+  ↓
+nginx (reverse proxy)
+  ↓  (adds X-User-ID and X-From-Proxy)
+app:5000 (Flask)
+```
+nginx config:
+```
+upstream app_upstream {
+    server app:5000;
+}
+
+server {
+    listen 80;
+
+    location / {
+        proxy_pass http://app_upstream;
+
+        proxy_set_header X-User-ID    "1";                              # identity set by proxy
+        proxy_set_header X-From-Proxy "sparringpartner-proxy-secret";   # proxy-only marker
+    }
+}
+```
+*Important*: `proxy_set_header X-User_ID "1";` means nginx overwrites any X-User_ID sent by the client. The backend never sees the client's original value when traffic goes through nginx.
+
+**Endpoints**
+
+- Two endpoints are added for this slice:
+	- `GET /users_proxy/<id>`        # vulnerable: trusts X-User-ID as identity
+	- `GET /users_proxy_safe/<id>`   # "safe": only trusts X-User-ID if proxy marker is present
+
+**Vulnerable pattern - header as identity, no boundary enforcement**
+
+	`users_proxy/<id>`:
+			- Reads `X-User-ID` and treats it as the caller's identity
+			- Returns user ID if `X-User-ID == id`
+			- Does not enforce that the header came fvrom nginx
+
+	Through nginx (port 80)	
+	``
+	curl http://localhost/users_proxy/1
+	# nginx sends X-User-ID: 1 and X-From-Proxy: sparringpartner-proxy-secret
+	# backend returns atlas (id 1)
+``
+Spoofing from the client via nginx does not work:
+	```
+	# X-User-ID: 3 from the client is overwritten by nginx back to 1
+	GET http://<EC2_PUBLIC_IP>/users_proxy/3
+```
+Backend still sees `X-User-ID` as 1, so /users_proxy/3 returns 403.
+
+**X-User_ID cannot be spoofed through the proxy - nginx owns that header**
+
+The vulnerability appears when the backend is reachable directly
+
+On the EC2 instance (bypass nginx)
+```
+	curl -H "X-User-ID: 1" http://localhost:5000/users_proxy/1
+	# direct to Flask; backend trusts whatever X-User-ID the client sends
+	```
+This models:
+	- We trust X-User_ID because the proxy sets it - but the backend is also reachable without the proxy
+
+Fixed pattern — require a proxy-only signal
+
+`/users_proxy_safe/<id>`:
+
+Still uses `X-User-ID` as identity.
+
+Only trusts it if a proxy-only marker is present and correct:
+```
+proxy_marker = request.headers.get("X-From-Proxy")
+if proxy_marker != PROXY_SHARED_SECRET:
+    return jsonify({"error": "forbidden"}), 403
+```
+Through nginx (port 80):
+```
+curl http://localhost/users_proxy_safe/1
+# nginx adds:
+#   X-User-ID: 1
+#   X-From-Proxy: sparringpartner-proxy-secret
+# backend returns atlas
+```
+Directly to Flask on 5000 (no proxy secret)
+```
+curl -H "X-User-ID: 1" http://localhost:5000/users_proxy_safe/1
+# no X-From-Proxy -> 403 {"error":"forbidden"}
+```
+Rule encoded:
+	- ***Headers are only identity if there is evidence they came from the trusted proxy***
+	
+In a real system this would be combined with:
+	- backend not publicly reachable, or
+	- IP / network allowlist, or
+	- mTLS between proxy and app
+
+This slice isolates the core idea:
+	- Reverse proxy = trust boundary.
+	- Headers are not identity unless that boundary is enforced.
+***Commands Summary***
+App container on 5000:
+```
+sudo docker run -d --name app --network sp_net -p 5000:5000 sparringpartner:aws
+```
+nginx fronting the app on 80:
+```
+sudo docker run -d \
+  --name sparringpartner_nginx \
+  --network sp_net \
+  -p 80:80 \
+  -v $HOME/sparringpartner/nginx.conf:/etc/nginx/nginx.conf:ro \
+  nginx:alpine
+```
+***EC2 tests (proxy vs direct)***
+Through nginx (port 80)
+```
+curl http://localhost/health
+curl http://localhost/users_proxy/1
+curl http://localhost/users_proxy_safe/1
+```
+Direct to Flask (port 5000)
+```
+curl http://localhost:5000/health
+curl -H "X-User-ID: 1" http://localhost:5000/users_proxy/1        # succeeds (vulnerable)
+curl -H "X-User-ID: 1" http://localhost:5000/users_proxy_safe/1   # 403 (safe, no proxy marker)
+```
+From machine (internet path)
+```
+http://<EC2_PUBLIC_IP>/health
+http://<EC2_PUBLIC_IP>/users_proxy/1
+http://<EC2_PUBLIC_IP>/users_proxy_safe/1
+
+#IP changes when started in EC2
+```
+All external trafiic hits nginx on port 80
+Header spoofing and bypass tests happen ***inside the instance on port 5000***
 
 ---
 Tooling Used

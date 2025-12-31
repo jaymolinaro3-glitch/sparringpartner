@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 import jwt
 from functools import wraps
+from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__)
 
@@ -17,6 +18,96 @@ PROXY_SHARED_SECRET = "sparringpartner-proxy-secret"
 # ---------- Token config ----------
 JWT_SECRET = "sparringpartner-token-secret"
 JWT_ALGO = "HS256"
+
+def generate_stress_token(user: dict) -> str:
+    """
+    Issue a short-lived JWT for token stress slice.
+
+    Claims:
+      - sub: user id (int)
+      - role: user["role"]
+      - aud: "sparringpartner-api"
+      - exp: now + 5 minutes
+      - iat: issued-at timestamp
+    """
+    now = datetime.now(timezone.utc)
+
+    payload = {
+        "sub": str(user["id"]),
+        "role": user["role"],
+        "aud": "sparringpartner-api",
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+    }
+
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+
+def decode_token_from_header(expect_audience: str | None = None, allow_expired: bool = False):
+    """
+    Read Authorization: Bearer <token> and decode it.
+
+    - Verifies signature.
+    - If expect_audience is provided, verifies aud.
+    - If allow_expired is True, skips exp verification (for the replay-vuln demo).
+    - On success:
+        - attaches request.current_user_id
+        - attaches request.current_token_claims
+        - returns (sub, claims)
+    - On failure:
+        - returns (None, {"error": "...", "status": <int>})
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None, {"error": "missing or invalid Authorization header", "status": 401}
+
+    token = auth_header.split(" ", 1)[1].strip()
+
+    decode_kwargs = {
+        "key": JWT_SECRET,
+        "algorithms": [JWT_ALGO],
+    }
+
+    options = {}
+
+    # Audience handling
+    if expect_audience is None:
+        options["verify_aud"] = False
+    else:
+        decode_kwargs["audience"] = expect_audience
+
+    # Expiration handling
+    if allow_expired:
+        # For replay-vulnerable endpoint: accept expired tokens.
+        options["verify_exp"] = False
+
+    if options:
+        decode_kwargs["options"] = options
+
+    try:
+        claims = jwt.decode(token, **decode_kwargs)
+    except jwt.ExpiredSignatureError:
+        return None, {"error": "token expired", "status": 401}
+    except jwt.InvalidAudienceError:
+        return None, {"error": "invalid audience", "status": 403}
+    except jwt.InvalidTokenError as e:
+        return None, {"error": f"invalid token: {str(e)}", "status": 401}
+
+    # sub is stored as a string in the token; convert to int
+    sub_claim = claims.get("sub")
+
+    try:
+        sub = int(sub_claim)
+    except (TypeError, ValueError):
+        return None, {"error": "invalid sub claim", "status": 403}
+
+    # Attach to request for downstream handlers
+    request.current_user_id = sub
+    request.current_token_claims = claims
+
+    return sub, claims
+
+
+
 
 
 def generate_token(user_id: int) -> str:
@@ -85,6 +176,41 @@ def login():
 
     token = generate_token(matched_user["id"])
     return jsonify({"access_token": token}), 200
+
+@app.route("/login_token_stress", methods=["POST"])
+def login_token_stress():
+    """
+    Issue a short-lived token for the token stress slice.
+    Body:
+      { "username": "<name>" }
+
+    Uses the in-memory users dict to find the user and builds a JWT with:
+      sub, role, aud, exp, iat
+    """
+    data = request.get_json() or {}
+    username = data.get("username")
+
+    if not username:
+        return jsonify({"error": "username required"}), 400
+
+    # Look up user by username in the in-memory users dict
+    user = next((u for u in users.values() if u["username"] == username), None)
+    if not user:
+        return jsonify({"error": "invalid credentials"}), 401
+
+    token = generate_stress_token(user)
+
+    return jsonify(
+        {
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_in_minutes": 5,
+            "aud": "sparringpartner-api",
+            "sub": user["id"],
+            "role": user["role"],
+        }
+    ), 200
+
 
 
 # ---------- VULNERABLE IDOR ENDPOINT (GET) ----------
@@ -170,6 +296,101 @@ def get_user_token_strict(user_id):
         return jsonify({"error": "forbidden"}), 403
 
     return jsonify(user), 200
+
+#------------TOKEN STRESS TEST ENDPOINTS----------
+@app.route("/users_token_replay/<int:user_id>", methods=["GET"])
+def users_token_replay(user_id):
+    """
+    VULNERABLE:
+    - Allows expired tokens (allow_expired=True).
+    - Does NOT bind sub (current_user_id) to user_id in the path.
+    - Any token with a valid signature can read any user, even after expiry.
+    """
+    user = users.get(user_id)
+    if not user:
+        return jsonify({"error": "not found"}), 404
+
+    sub, result = decode_token_from_header(expect_audience=None, allow_expired=True)
+    if sub is None:
+        status = result.get("status", 401)
+        return jsonify({"error": result.get("error", "unauthorized")}), status
+
+    # BUG: no check that sub == user_id, and we allowed expired tokens above.
+    return jsonify(user), 200
+
+
+@app.route("/users_token_replay_safe/<int:user_id>", methods=["GET"])
+def users_token_replay_safe(user_id):
+    """
+    SAFE:
+    - Enforces exp (no allow_expired).
+    - Enforces audience "sparringpartner-api".
+    - Binds sub (current_user_id) to user_id in the path.
+    """
+    user = users.get(user_id)
+    if not user:
+        return jsonify({"error": "not found"}), 404
+
+    sub, result = decode_token_from_header(expect_audience="sparringpartner-api")
+    if sub is None:
+        status = result.get("status", 401)
+        return jsonify({"error": result.get("error", "unauthorized")}), status
+
+    # Correct identity binding
+    if sub != user_id:
+        return jsonify({"error": "forbidden"}), 403
+
+    return jsonify(user), 200
+
+@app.route("/admin_token_sensitive_insecure", methods=["GET"])
+def admin_token_sensitive_insecure():
+    """
+    VULNERABLE:
+    - Only checks that the token is structurally valid.
+    - Does NOT enforce role == 'admin'.
+    - Any authenticated user can access this.
+    """
+    sub, result = decode_token_from_header(expect_audience="sparringpartner-api")
+    if sub is None:
+        status = result.get("status", 401)
+        return jsonify({"error": result.get("error", "unauthorized")}), status
+
+    # BUG: no role check at all.
+    return jsonify(
+        {
+            "admin_data": "sensitive admin-only information",
+            "current_user_id": sub,
+            "claims": request.current_token_claims,
+        }
+    ), 200
+
+@app.route("/admin_token_sensitive", methods=["GET"])
+def admin_token_sensitive():
+    """
+    SAFE:
+    - Enforces valid token.
+    - Enforces role == 'admin'.
+    """
+    sub, result = decode_token_from_header(expect_audience="sparringpartner-api")
+    if sub is None:
+        status = result.get("status", 401)
+        return jsonify({"error": result.get("error", "unauthorized")}), status
+
+    claims = request.current_token_claims
+    role = claims.get("role")
+
+    if role != "admin":
+        return jsonify({"error": "forbidden"}), 403
+
+    return jsonify(
+        {
+            "admin_data": "sensitive admin-only information",
+            "current_user_id": sub,
+            "claims": claims,
+        }
+    ), 200
+
+
 
 #-----------REVERSE PROXY / HEADER-TRUST SLICE------
 

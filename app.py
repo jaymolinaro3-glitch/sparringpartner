@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 import jwt
 from functools import wraps
 from datetime import datetime, timedelta, timezone
+import requests
 
 app = Flask(__name__)
 
@@ -14,6 +15,16 @@ users = {
 
 # ---------- Reverse proxy / header-trust slice ----------
 PROXY_SHARED_SECRET = "sparringpartner-proxy-secret"
+
+# ---------- Internal service config (Service-to-Service slice) ----------
+INTERNAL_SERVICE_BASE = "http://127.0.0.1:6000"
+INTERNAL_SHARED_SECRET = "hunter2"  # intentionally weak, demo only
+
+# Stronger shared secret for signed internal tokens
+INTERNAL_S2S_JWT_SECRET = "sparringpartner-internal-hmac"
+INTERNAL_S2S_JWT_ALGO = "HS256"
+
+
 
 # ---------- Token config ----------
 JWT_SECRET = "sparringpartner-token-secret"
@@ -448,6 +459,128 @@ def get_user_via_proxy_header_safe(user_id):
         return jsonify({"error": "forbidden"}), 403
 
     return jsonify(user), 200
+
+# ---------- Service-to-Service slice: VULNERABLE user summary ----------
+@app.route("/user_summary/<int:user_id>", methods=["GET"])
+def user_summary(user_id: int):
+    """
+    VULNERABLE Service-to-Service pattern:
+
+    - Main API acts as "Service A"
+    - Internal service (on :6000) acts as "Service B"
+    - Service A calls Service B using a static header X-Internal-Secret.
+
+    Assumptions:
+    - Only Service A knows the secret and can reach Service B.
+
+    Problem:
+    - Any attacker that can reach Service B directly and send the same header
+      gets the same access as Service A.
+    """
+
+    # Reuse existing in-memory users to provide some basic context.
+    user = users.get(user_id)
+    if not user:
+        return jsonify({"error": "not found"}), 404
+
+    try:
+        resp = requests.get(
+            f"{INTERNAL_SERVICE_BASE}/internal/accounts/{user_id}",
+            headers={"X-Internal-Secret": INTERNAL_SHARED_SECRET},
+            timeout=2.0,
+        )
+    except requests.RequestException as e:
+        return jsonify({"error": "internal service unreachable", "detail": str(e)}), 502
+
+    # Pass through internal errors directly for this demo.
+    if resp.status_code != 200:
+        return jsonify(
+            {
+                "error": "internal service error",
+                "status": resp.status_code,
+                "body": resp.text,
+            }
+        ), 502
+
+    account_data = resp.json()
+
+    # Simple combined view coming from both services.
+    summary = {
+        "user_id": user_id,
+        "username": user["username"],
+        "role": user["role"],
+        "email": user["email"],
+        "account": account_data,
+    }
+
+    return jsonify(summary), 200
+
+# ---------- Service-to-Service slice: SAFE user summary ----------
+@app.route("/user_summary_safe/<int:user_id>", methods=["GET"])
+def user_summary_safe(user_id: int):
+    """
+    SAFE Service-to-Service pattern:
+
+    - Main API (Service A) calls Internal Service (Service B) using a signed
+      internal token instead of a static header.
+    - The token carries user_id and role.
+    - Internal service verifies the signature and enforces that token.user_id
+      matches the requested user_id.
+
+    This preserves the core principle:
+    Authorization is derived from verified claims, not from a bare "internal" flag.
+    """
+
+    user = users.get(user_id)
+    if not user:
+        return jsonify({"error": "not found"}), 404
+
+    # Build internal S2S token payload
+    internal_claims = {
+        "user_id": user_id,
+        "role": user["role"],
+        "iss": "sparringpartner-main",
+        "aud": "sparringpartner-internal",
+    }
+
+    internal_token = jwt.encode(
+        internal_claims,
+        INTERNAL_S2S_JWT_SECRET,
+        algorithm=INTERNAL_S2S_JWT_ALGO,
+    )
+
+    try:
+        resp = requests.get(
+            f"{INTERNAL_SERVICE_BASE}/internal/accounts_safe/{user_id}",
+            headers={"Authorization": f"Internal {internal_token}"},
+            timeout=2.0,
+        )
+    except requests.RequestException as e:
+        return jsonify({"error": "internal service unreachable", "detail": str(e)}), 502
+
+    if resp.status_code != 200:
+        return jsonify(
+            {
+                "error": "internal service error",
+                "status": resp.status_code,
+                "body": resp.text,
+            }
+        ), 502
+
+    data = resp.json()
+
+    summary = {
+        "user_id": user_id,
+        "username": user["username"],
+        "role": user["role"],
+        "email": user["email"],
+        "account": data.get("account"),
+        "token_user_id": data.get("token_user_id"),
+        "token_role": data.get("token_role"),
+    }
+
+    return jsonify(summary), 200
+
 
 
 

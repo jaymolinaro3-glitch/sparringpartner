@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 import jwt
+import os
 
 app = Flask(__name__)
 
@@ -127,5 +128,10 @@ def get_internal_account_safe(user_id: int):
 
 
 if __name__ == "__main__":
-    # Run this "internal" service on a different port than the main app.
-    app.run(host="0.0.0.0", port=6000, debug=True)
+    # Internal service: default to loopback + debug off.
+    host = os.environ.get("SP_INTERNAL_HOST", "127.0.0.1")
+    debug = os.environ.get("SP_INTERNAL_DEBUG", "false").lower() == "true"
+
+    app.run(host=host, port=6000, debug=debug)
+
+

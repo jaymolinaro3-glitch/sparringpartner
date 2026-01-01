@@ -3,6 +3,7 @@ import jwt
 from functools import wraps
 from datetime import datetime, timedelta, timezone
 import requests
+import os
 
 app = Flask(__name__)
 
@@ -585,4 +586,9 @@ def user_summary_safe(user_id: int):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", debug=True)
+    # Default: safe for local dev (loopback + debug off).
+    # Docker/AWS slices can override via env vars.
+    host = os.environ.get("SP_APP_HOST", "127.0.0.1")
+    debug = os.environ.get("SP_APP_DEBUG", "false").lower() == "true"
+
+    app.run(host=host, debug=debug)

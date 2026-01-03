@@ -2,6 +2,18 @@
 
 Deliberately vulnerable Flask API built to practice product and API security reasoning, with a focus on authorization correctness. Rather than cataloging vulnerabilities, this project is structured around exploit security claims, how those claims can fail, and how to fix them correctly at the server. 
 
+---
+## SparringPartner — Slice Index
+
+- [IDOR / BOLA / Mass Assignment](slices/01-idor-bola-mass-assignment.md)
+- [Token Binding](slices/02-token-binding.md)
+- [Token Stress Tests](slices/03-token-stress-tests.md)
+- [Docker + AWS Trust Boundary](slices/04-docker-aws-trust-boundary.md)
+- [NGINX Reverse Proxy Trust Boundary](slices/05-nginx-reverse-proxy.md)
+- [Service-to-Service Auth](slices/06-service-to-service-auth.md)
+- [Semgrep SAST Slice](slices/07-semgrep-sast.md)
+---
+
 Security Claims Demonstrated
 ---
 Claim 1  - Object access is restricted to the owning user

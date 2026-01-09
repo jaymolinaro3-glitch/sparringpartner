@@ -22,7 +22,9 @@ Authorization must be derived from servide-side state, never from client-control
 
 ![SparringPartner Architecture](SPDiagram.drawio.png)
 
-This diagram shows intended request path and bypass paths exploited
+This diagram shows intended request path and bypass paths exploited. Authorization must be explicitly enforced at each hop between trust boundaries. 
+
+
 
 
 ## Tech Stack

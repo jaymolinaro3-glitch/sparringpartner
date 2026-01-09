@@ -1,6 +1,6 @@
-# SparringPartner v1 — Vulnerable API (Flask)
+# SparringPartner v1 — Authorization-Focused API Security Lab (Flask)
 
-Deliberately vulnerable Flask API built to practice product and API security reasoning, with a focus on authorization correctness. Rather than cataloging vulnerabilities, this project is structured around exploit security claims, how those claims can fail, and how to fix them correctly at the server. 
+SparringPartner is a deliberately vulnerable Flask-based API designed to model real SaaS authorization and trust-boundary failures. The project emphasizes claims-based security reasoning: defining intended security guarantees, demonstrating how those guarantees fail under real attack conditions, and implementing correct server-side authorization fixes. Each vulnerability is explored end-to-end—from exploit to root cause to secure rewrite—prioritizing authorization correctness over vulnerability enumeration.
 
 ---
 ## SparringPartner — Slice Index

@@ -14,15 +14,15 @@ Deliberately vulnerable Flask API built to practice product and API security rea
 - [Semgrep SAST Slice](slices/07-semgrep-sast.md)
 ---
 
+Security Claim Demonstrated
+---
+Authorization must be derived from servide-side state, never from client-controlled input.
+
 ## High Level Architecture
 
 ![SparringPartner Architecture](SPDiagram.drawio.png)
 
 This diagram shows intended request path and bypass paths exploited
-
-Security Claim Demonstrated
----
-Authorization must be derived from servide-side state, never from client-controlled input.
 
 
 ## Tech Stack

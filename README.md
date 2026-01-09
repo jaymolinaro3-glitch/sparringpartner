@@ -14,6 +14,12 @@ Deliberately vulnerable Flask API built to practice product and API security rea
 - [Semgrep SAST Slice](slices/07-semgrep-sast.md)
 ---
 
+## High Level Architecture
+
+![SparringPartner Architecture](SPDiagram.drawio.png)
+
+This diagram shows intended request path and bypass paths exploited
+
 Security Claims Demonstrated
 ---
 Claim 1  - Object access is restricted to the owning user
